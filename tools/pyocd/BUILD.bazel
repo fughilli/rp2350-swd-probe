@@ -1,0 +1,18 @@
+# Our own pyOCD CLI: @firmware's hermetic pyOCD (Nix libusb backend) carrying the
+# CMSIS packs we vendor in packs.lock (GD32E230 for the Rd-03E host MCU). The
+# packs are auto-passed as `--pack` to pack-aware subcommands (incl. gdbserver),
+# so `--target gd32e230k8` works with no manual `pyocd pack install`.
+#
+#   bazel run //tools/pyocd -- list
+#   bazel run //tools/pyocd -- gdbserver --target gd32e230k8      # (tools/gdbserver.sh wraps this)
+#
+# Add targets: append to packs.in, then relock (see packs.in / MODULE.bazel).
+load("@firmware//tools/pyocd:defs.bzl", "pyocd_binary")
+
+pyocd_binary(
+    name = "pyocd",
+    packs = ["@rp2350_cmsis_packs//:all_packs"],
+    visibility = ["//visibility:public"],
+)
+
+exports_files(["packs.in", "packs.lock"])

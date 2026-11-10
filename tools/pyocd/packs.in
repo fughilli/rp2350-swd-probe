@@ -1,0 +1,5 @@
+# pyOCD targets whose CMSIS Device Family Pack must be vendored, one per line.
+# Regenerate the lock:
+#   bazel run @firmware//tools/pyocd:update_packs -- \
+#     --packs-in tools/pyocd/packs.in --lock tools/pyocd/packs.lock
+gd32e230k8

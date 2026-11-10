@@ -1,67 +1,89 @@
 #!/usr/bin/env bash
-# Run a pyOCD GDB server over the CMSIS-DAP probe and expose it to a remote
-# (e.g. a container or another machine) for remote firmware load/debug.
+# Run a pyOCD GDB server over the CMSIS-DAP probe and forward it to a remote
+# over SSH, so the port is NEVER exposed on this machine's network — pyOCD binds
+# localhost only, and a reverse SSH tunnel (ssh -R) carries it to the remote
+# where the debugging client (gdb) runs.
 #
-# Runs on the HOST the probe is plugged into. pyOCD is @firmware's hermetic
-# //tools/pyocd (Nix libusb backend), driven via `bazel run` — nothing to
-# install but Nix + Bazel, same toolchain the sibling firmware repos use.
+# Runs on the HOST the probe is plugged into. pyOCD is //tools/pyocd (@firmware's
+# hermetic pyOCD, Nix libusb backend) carrying our vendored CMSIS packs, driven
+# via `bazel run` — so `--target gd32e230k8` works with no manual pack install.
 #
 # Usage:
-#   tools/gdbserver.sh --target <pyocd-target> [--port N] [--frequency HZ] [pyocd args...]
+#   tools/gdbserver.sh --target <pyocd-target> --ssh <user@remote> \
+#       [--port N] [--remote-port N] [pyocd args...]
 #
-# Examples:
-#   tools/gdbserver.sh --target gd32e230k8          # GD32E230 (Rd-03E host MCU)
-#   tools/gdbserver.sh --target stm32g0b1xx --port 3333 --frequency 4000000
+#   --ssh         SSH destination where gdb will connect (the remote end of the
+#                 tunnel). Defaults to $GDBSERVER_SSH. Required (no --ssh and no
+#                 env => error: this script refuses to expose the port locally).
+#   --port        local pyOCD GDB port on this machine (default 3333).
+#   --remote-port port the tunnel lands on at the remote's loopback
+#                 (default: same as --port).
+#   everything else is forwarded to `pyocd gdbserver` (e.g. --frequency).
 #
-# Then from the remote, connect arm-none-eabi-gdb to <HOST-IP>:<port>:
-#   (gdb) target remote <HOST-IP>:3333
-#   (gdb) load                # flash the ELF you opened gdb with
-#   (gdb) monitor reset halt
+# Example:
+#   tools/gdbserver.sh --target gd32e230k8 --ssh kevin@devbox --frequency 4000000
 #
-# Notes:
-#   * --allow-remote and --persist are added automatically (remote connects;
-#     server survives a client disconnect so you can reconnect).
-#   * A pyOCD target outside its built-ins needs its CMSIS pack first:
-#       bazel run @firmware//tools/pyocd -- pack install <target>
-#     (GD32E230 ships in GigaDevice's pack: `... pyocd pack find gd32e230`.)
+# Then on the remote (kevin@devbox), connect to localhost:<remote-port>:
+#   arm-none-eabi-gdb firmware.elf -ex 'target remote localhost:3333'
+#   (gdb) load ; monitor reset halt ; continue
+#
+# Targets come from the vendored CMSIS packs (tools/pyocd/packs.in -> packs.lock).
+# To add one: append its pyOCD target name to packs.in and relock:
+#   bazel run @firmware//tools/pyocd:update_packs -- \
+#     --packs-in tools/pyocd/packs.in --lock tools/pyocd/packs.lock
 set -euo pipefail
 
 # Run from the repo root so `bazel run @firmware//...` resolves this workspace.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Default GDB port (pyOCD's default); parse the user's -p/--port only to print
-# the right connect hint — all args are still forwarded to pyocd verbatim.
 PORT=3333
-args=("$@")
-for ((i = 0; i < ${#args[@]}; i++)); do
-  case "${args[$i]}" in
-    -p | --port) PORT="${args[$((i + 1))]:-3333}" ;;
-    --port=*) PORT="${args[$i]#*=}" ;;
+REMOTE_PORT=""
+SSH_DEST="${GDBSERVER_SSH:-}"
+pyocd_args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ssh) SSH_DEST="$2"; shift 2 ;;
+    --ssh=*) SSH_DEST="${1#*=}"; shift ;;
+    --remote-port) REMOTE_PORT="$2"; shift 2 ;;
+    --remote-port=*) REMOTE_PORT="${1#*=}"; shift ;;
+    -p | --port) PORT="$2"; shift 2 ;;        # captured for the tunnel; re-added below
+    --port=*) PORT="${1#*=}"; shift ;;
+    *) pyocd_args+=("$1"); shift ;;
   esac
 done
+REMOTE_PORT="${REMOTE_PORT:-$PORT}"
 
-# Best-effort LAN IP for the connect hint (macOS + Linux).
-host_ip() {
-  if command -v ipconfig >/dev/null 2>&1; then
-    ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true
-  fi
-  if command -v ip >/dev/null 2>&1; then
-    ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(n=1;n<=NF;n++) if($n=="src"){print $(n+1); exit}}'
-  fi
-}
-IP="$(host_ip | head -n1)"; IP="${IP:-<HOST-IP>}"
+if [ -z "$SSH_DEST" ]; then
+  cat >&2 <<'EOF'
+error: no SSH destination. This script does not expose the GDB port locally;
+it forwards over SSH. Pass --ssh <user@remote> (or set $GDBSERVER_SSH) — the
+remote is the machine where you run gdb.
+EOF
+  exit 2
+fi
+
+# Reverse tunnel: remote:loopback:REMOTE_PORT -> this machine's localhost:PORT.
+# Bound to the remote's loopback (default sshd GatewayPorts=no), so the port is
+# reachable only on the remote, through SSH. ExitOnForwardFailure => fail loudly
+# if REMOTE_PORT is already taken on the remote.
+echo "[gdbserver] opening reverse SSH tunnel: ${SSH_DEST} localhost:${REMOTE_PORT} -> here localhost:${PORT}" >&2
+ssh -N \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -R "${REMOTE_PORT}:localhost:${PORT}" \
+  "$SSH_DEST" &
+SSH_PID=$!
+trap 'kill "$SSH_PID" 2>/dev/null || true' EXIT INT TERM
 
 cat >&2 <<EOF
-[gdbserver] starting pyOCD GDB server on 0.0.0.0:${PORT} (remote connections allowed)
-[gdbserver] connect from the remote with:
-[gdbserver]     arm-none-eabi-gdb <your.elf> -ex 'target remote ${IP}:${PORT}'
+[gdbserver] pyOCD binds localhost:${PORT} only (no network exposure).
+[gdbserver] on ${SSH_DEST}, connect gdb to the tunnel:
+[gdbserver]     arm-none-eabi-gdb <your.elf> -ex 'target remote localhost:${REMOTE_PORT}'
 [gdbserver]   then:  (gdb) load   (gdb) monitor reset halt   (gdb) continue
-[gdbserver] if the remote can't route to ${IP}, tunnel instead:
-[gdbserver]     ssh -N -L ${PORT}:localhost:${PORT} <user>@${IP}   # drop --allow-remote below
 [gdbserver] first build of //tools/pyocd fetches the hermetic toolchain; Ctrl-C to stop.
 EOF
 
-# --persist: survive client disconnects.  --allow-remote: accept non-local TCP.
-exec bazel run @firmware//tools/pyocd -- \
-  gdbserver --persist --allow-remote --port "${PORT}" "$@"
+# --persist: survive client disconnects. No --allow-remote: localhost bind only.
+bazel run //tools/pyocd -- \
+  gdbserver --persist --port "${PORT}" "${pyocd_args[@]}"

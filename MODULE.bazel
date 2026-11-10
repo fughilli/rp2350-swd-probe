@@ -28,6 +28,18 @@ git_override(
     commit = "ed8a3f7272b8a6d90747072f3c62a35d7bbb5cff",
 )
 
+# CMSIS Device Family Packs for pyOCD targets outside its built-ins, vendored
+# via @firmware's mechanism: tools/pyocd/packs.in -> packs.lock (relocked with
+# `bazel run @firmware//tools/pyocd:update_packs -- --packs-in tools/pyocd/packs.in
+# --lock tools/pyocd/packs.lock`) -> this hub, carried by our //tools/pyocd:pyocd.
+# A distinct hub_name keeps our packs separate from @firmware's own `cmsis_packs`.
+cmsis = use_extension("@firmware//rules:cmsis_pack.bzl", "cmsis_packs")
+cmsis.parse(
+    lock = "//tools/pyocd:packs.lock",
+    hub_name = "rp2350_cmsis_packs",
+)
+use_repo(cmsis, "rp2350_cmsis_packs")
+
 # --- debugprobe firmware images (official RPi release, pinned) --------------
 # https://github.com/raspberrypi/debugprobe/releases/tag/debugprobe-v2.3.1
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")

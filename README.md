@@ -106,10 +106,15 @@ If the remote can't route to the host's LAN IP, tunnel instead (and drop
 ssh -N -L 3333:localhost:3333 <user>@<HOST-IP>
 ```
 
-A pyOCD target outside its built-ins needs its CMSIS pack installed once:
+Targets outside pyOCD's built-ins come from CMSIS packs vendored through
+`@firmware`'s lock mechanism — `tools/pyocd/packs.in` → `packs.lock` → a pack hub
+carried by `//tools/pyocd:pyocd`, auto-passed as `--pack`. GD32E230 (`gd32e230k8`,
+the Rd-03E host MCU) is already locked. To add a target, append its pyOCD name to
+`packs.in` and relock:
 
 ```sh
-bazel run @firmware//tools/pyocd -- pack install <target>   # find it: ... pack find gd32e230
+bazel run @firmware//tools/pyocd:update_packs -- \
+    --packs-in tools/pyocd/packs.in --lock tools/pyocd/packs.lock
 ```
 
 > Security: `--allow-remote` opens the GDB port to any host that can reach it.
@@ -121,7 +126,8 @@ bazel run @firmware//tools/pyocd -- pack install <target>   # find it: ... pack 
 |------|------|
 | `MODULE.bazel` | reuses `@firmware` for hermetic picotool + pyOCD; `http_file`-pins the debugprobe UF2s |
 | `BUILD.bazel` | `//:flash_probe` (RP2350) + `//:flash_probe_pico` (RP2040) via `@firmware`'s `picotool_flash`; `-- -f` reaches picotool's device selection |
-| `tools/gdbserver.sh` | host-side pyOCD GDB server (`@firmware//tools/pyocd`) over the probe, exposed to a remote |
+| `tools/gdbserver.sh` | host-side pyOCD GDB server over the probe, reverse-SSH-tunneled to a remote (no local exposure) |
+| `tools/pyocd/` | our `pyocd_binary` (`//tools/pyocd:pyocd`) + vendored CMSIS packs (`packs.in`/`packs.lock`; GD32E230 locked) |
 
 Firmware image: debugprobe **v2.3.1**, assets `debugprobe_on_pico2.uf2` /
 `debugprobe_on_pico.uf2`. Bump the version + sha256 in `MODULE.bazel` to update.
