@@ -1,12 +1,15 @@
-# Flash the stock debugprobe firmware onto a fresh RP2350/RP2040 in BOOTSEL mode,
-# turning it into a CMSIS-DAP SWD probe.
+# Flash the stock debugprobe firmware onto an RP2350/RP2040, turning it into a
+# CMSIS-DAP SWD probe. Uses @firmware's hermetic picotool via picotool_flash.
 #
-#   1. Hold BOOTSEL, plug the board into USB (it mounts as RP2350/RPI-RP2).
-#   2. bazel run //:flash_probe        # RP2350 / Pico 2
-#      bazel run //:flash_probe_pico   # RP2040 / original Pico
+#   bazel run //:flash_probe           # RP2350 / Pico 2
+#   bazel run //:flash_probe -- -f     # ...forcing a running board into BOOTSEL
+#   bazel run //:flash_probe_pico      # RP2040 / original Pico
 #
-# picotool `load -x` writes the UF2 and reboots into it; the board then
-# re-enumerates as a debug probe (CMSIS-DAP + a USB-serial for the target UART).
+# If the board is freshly plugged in holding BOOTSEL, no `-f` is needed. If it's
+# already running firmware (e.g. re-flashing an existing probe, which presents a
+# USB-serial connection), add `-- -f` to force it into BOOTSEL first. Extra args
+# reach picotool's device selection (needs the picotool_flash pass-through fix,
+# @firmware PR #10).
 load("@firmware//rules:flash.bzl", "picotool_flash")
 
 picotool_flash(

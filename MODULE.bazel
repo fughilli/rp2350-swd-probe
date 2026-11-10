@@ -1,14 +1,14 @@
 """Turn a bare RP2350 (Raspberry Pi Pico 2) into a CMSIS-DAP SWD debug probe.
 
-This repo does one thing: flash Raspberry Pi's stock `debugprobe` firmware onto
-a fresh RP2350 over USB (BOOTSEL), so the board becomes a CMSIS-DAP / SWD probe
-usable by pyOCD, OpenOCD, probe-rs, etc.
+Two jobs, both built on github.com/fughilli/embedded (bzlmod module `firmware`)
+so the tooling matches the sibling firmware repos — no re-derived toolchains:
 
-It reuses github.com/fughilli/embedded (bzlmod module `firmware`) purely for its
-hermetic, Nix-provided `picotool` and the `picotool_flash` rule — the same
-toolchain the lamp/radar firmware repos already use. The debugprobe UF2 itself
-is fetched (pinned by sha256) straight from the official GitHub release; nothing
-is built from source here.
+  * `bazel run //:flash_probe`  — flash Raspberry Pi's stock `debugprobe`
+    firmware onto a fresh RP2350 via @firmware's hermetic `picotool`
+    (`picotool_flash` rule, //rules:flash.bzl).
+  * `tools/gdbserver.sh`        — run @firmware's hermetic pyOCD
+    (`//tools/pyocd`, with its Nix libusb backend) as a GDB server over the
+    probe, exposed to a remote for remote flash/debug.
 """
 
 module(
@@ -17,13 +17,15 @@ module(
     compatibility_level = 1,
 )
 
-# Reused only for @picotool (Nix) + the picotool_flash rule in //rules:flash.bzl.
-# Pinned to the same commit the sibling firmware repos use.
+# The embedded firmware infra (Nix-provided picotool + pyOCD, the picotool_flash
+# rule, the //tools/pyocd gdbserver). Pinned to the branch carrying the
+# picotool_flash pass-through-args fix (PR #10) so `flash_probe -- -f` works;
+# re-pin to master once that merges.
 bazel_dep(name = "firmware", version = "0.0.0")
 git_override(
     module_name = "firmware",
     remote = "https://github.com/fughilli/embedded",
-    commit = "3986a89cb5de060bb01cf8a321bb0fce961f2692",
+    commit = "ed8a3f7272b8a6d90747072f3c62a35d7bbb5cff",
 )
 
 # --- debugprobe firmware images (official RPi release, pinned) --------------
