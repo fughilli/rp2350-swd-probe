@@ -25,7 +25,7 @@ bazel_dep(name = "firmware", version = "0.0.0")
 git_override(
     module_name = "firmware",
     remote = "https://github.com/fughilli/embedded",
-    commit = "ed8a3f7272b8a6d90747072f3c62a35d7bbb5cff",
+    commit = "9eb3321aaf6119a19e3d802c9576b245de3d7484",
 )
 
 # CMSIS Device Family Packs for pyOCD targets outside its built-ins, vendored
