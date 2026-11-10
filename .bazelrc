@@ -1,0 +1,17 @@
+# bzlmod is the source of truth; no WORKSPACE.
+common --enable_bzlmod
+
+# @firmware isolates its nix_repo/nix_pkg extension usages so it works as a
+# dependency; consuming those isolated usages needs this (experimental in Bazel 7).
+common --experimental_isolated_extension_usages
+
+# Hermetic action env so the on-disk cache is correct across machines.
+build --incompatible_strict_action_env
+
+# Persist caches in the workspace tree (dot-prefixed, gitignored) so they
+# survive container/host restarts that wipe ~/.cache.
+build  --disk_cache=.bazel-disk-cache
+common --repository_cache=.bazel-repo-cache
+
+# aarch64 SIGILL guard (bundled JDK + SVE). Harmless on hosts without SVE.
+startup --host_jvm_args=-XX:+IgnoreUnrecognizedVMOptions --host_jvm_args=-XX:UseSVE=0

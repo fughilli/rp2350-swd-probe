@@ -1,0 +1,47 @@
+"""Turn a bare RP2350 (Raspberry Pi Pico 2) into a CMSIS-DAP SWD debug probe.
+
+This repo does one thing: flash Raspberry Pi's stock `debugprobe` firmware onto
+a fresh RP2350 over USB (BOOTSEL), so the board becomes a CMSIS-DAP / SWD probe
+usable by pyOCD, OpenOCD, probe-rs, etc.
+
+It reuses github.com/fughilli/embedded (bzlmod module `firmware`) purely for its
+hermetic, Nix-provided `picotool` and the `picotool_flash` rule — the same
+toolchain the lamp/radar firmware repos already use. The debugprobe UF2 itself
+is fetched (pinned by sha256) straight from the official GitHub release; nothing
+is built from source here.
+"""
+
+module(
+    name = "rp2350_swd_probe",
+    version = "0.0.0",
+    compatibility_level = 1,
+)
+
+# Reused only for @picotool (Nix) + the picotool_flash rule in //rules:flash.bzl.
+# Pinned to the same commit the sibling firmware repos use.
+bazel_dep(name = "firmware", version = "0.0.0")
+git_override(
+    module_name = "firmware",
+    remote = "https://github.com/fughilli/embedded",
+    commit = "3986a89cb5de060bb01cf8a321bb0fce961f2692",
+)
+
+# --- debugprobe firmware images (official RPi release, pinned) --------------
+# https://github.com/raspberrypi/debugprobe/releases/tag/debugprobe-v2.3.1
+http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
+
+# RP2350 / Pico 2 — this is the one you want for a Pico 2 probe.
+http_file(
+    name = "debugprobe_on_pico2_uf2",
+    urls = ["https://github.com/raspberrypi/debugprobe/releases/download/debugprobe-v2.3.1/debugprobe_on_pico2.uf2"],
+    sha256 = "98cbb993872e4bb7bf7ac064cef8986cda171b9e783ef6ce1544873d7b704621",
+    downloaded_file_path = "debugprobe_on_pico2.uf2",
+)
+
+# RP2040 / original Pico — kept for convenience (//:flash_probe_pico).
+http_file(
+    name = "debugprobe_on_pico_uf2",
+    urls = ["https://github.com/raspberrypi/debugprobe/releases/download/debugprobe-v2.3.1/debugprobe_on_pico.uf2"],
+    sha256 = "6649ebba11df46cfa6cfa1faec9706bd21303893cf3f1e40067284bd4e3792d4",
+    downloaded_file_path = "debugprobe_on_pico.uf2",
+)

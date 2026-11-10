@@ -1,0 +1,7 @@
+/bazel-*
+/.bazelisk/
+/.bazel-disk-cache/
+/.bazel-repo-cache/
+/.direnv/
+__pycache__/
+*.pyc
